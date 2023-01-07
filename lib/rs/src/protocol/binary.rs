@@ -24,7 +24,7 @@ use super::{
 };
 use super::{TOutputProtocol, TOutputProtocolFactory, TSetIdentifier, TStructIdentifier, TType};
 use crate::transport::{TReadTransport, TWriteTransport};
-use crate::{ProtocolError, ProtocolErrorKind};
+use crate::{new_protocol_error, ProtocolError, ProtocolErrorKind};
 
 const BINARY_PROTOCOL_VERSION_1: u32 = 0x8001_0000;
 
@@ -155,6 +155,19 @@ where
 
     fn read_bytes(&mut self) -> crate::Result<Vec<u8>> {
         let num_bytes = self.transport.read_i32::<BigEndian>()? as usize;
+        // Size limit was chosen based on this page: https://erikvanoosten.github.io/thrift-missing-specification/#_binary_encoding_2
+        // Specifically: "Be default the length is limited to 2147483647, however some implementation have the option to lower the limit."
+        let size_limit = (2 << 30) - 1;
+        if num_bytes > size_limit {
+            return Err(new_protocol_error(
+            ProtocolErrorKind::SizeLimit,
+            format!(
+                "Length of binary encoded data is too large (expected size to be at most {} bytes, got {} instead).",
+                size_limit,
+                num_bytes
+            ),
+        ));
+        }
         let mut buf = vec![0u8; num_bytes];
         self.transport
             .read_exact(&mut buf)
